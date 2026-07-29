@@ -18,9 +18,19 @@
 name: Build runner image
 
 on:
+  # No paths-ignore here, deliberately, and asymmetrically with `push` below: if this build ever
+  # becomes a required status check, a docs-only PR that skips it would never report and could not
+  # be merged.
   pull_request:
   push:
     branches: [main]
+    # A docs-only merge must not republish. The build provenance attestation embeds the commit SHA,
+    # so every publish yields a NEW index digest even when the image content is byte-for-byte
+    # identical — and arc/runners.yaml pins by digest. Without this, editing a sentence in the README
+    # silently invalidates the digest the cluster is pinned to.
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
   workflow_dispatch:
 
 # One in-flight build per ref; a force-push supersedes the previous run instead of racing it.

@@ -107,12 +107,17 @@ scale set, and `scripts/hooks/kustomize-validate.sh` asserts it appears exactly 
 
 ```yaml
 # renovate: datasource=docker depName=ghcr.io/luishmg/github-runners
-image: ghcr.io/luishmg/github-runners:2.336.0@sha256:181ab3e6efaa82f7f3fb2fd8a172bedb1a3b162d6d811d96d39e8f3bff2e2cdc
+image: ghcr.io/luishmg/github-runners:2.336.0@sha256:…
 ```
 
-The build prints the digest to pin in its job summary. Each push to `main` also tags
-`:sha-<full-commit-sha>` and `:latest`, and attaches an SBOM and a Sigstore-signed build provenance
-attestation.
+**The digest is deliberately not written down here.** The build provenance attestation embeds the
+commit SHA, so every publish produces a new index digest even when the image content is byte-for-byte
+identical — a digest pasted into this README is stale the next time anything merges. The authoritative
+value is printed in the build's job summary, ready to paste; `arc/runners.yaml` is the one place it
+belongs.
+
+Each push to `main` tags `:2.336.0`, `:sha-<full-commit-sha>` and `:latest`, and attaches an SBOM and
+a Sigstore-signed build provenance attestation.
 
 **No `imagePullSecret` is needed.** The GHCR package inherited this repo's public visibility on first
 publish — verified by an unauthenticated manifest fetch against `ghcr.io/v2/`, which returns `200`.
