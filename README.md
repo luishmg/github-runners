@@ -107,13 +107,15 @@ scale set, and `scripts/hooks/kustomize-validate.sh` asserts it appears exactly 
 
 ```yaml
 # renovate: datasource=docker depName=ghcr.io/luishmg/github-runners
-image: ghcr.io/luishmg/github-runners:2.336.0@sha256:…
+image: ghcr.io/luishmg/github-runners:2.336.0@sha256:181ab3e6efaa82f7f3fb2fd8a172bedb1a3b162d6d811d96d39e8f3bff2e2cdc
 ```
 
-The build prints the digest to pin in its job summary.
+The build prints the digest to pin in its job summary. Each push to `main` also tags
+`:sha-<full-commit-sha>` and `:latest`, and attaches an SBOM and a Sigstore-signed build provenance
+attestation.
 
-### One-time manual step
-
-**Set the GHCR package visibility to Public after the first push.** Packages default to private even
-in a public repo. If this is missed, ARC needs an `imagePullSecret` and the runner pods sit in
-`ImagePullBackOff`.
+**No `imagePullSecret` is needed.** The GHCR package inherited this repo's public visibility on first
+publish — verified by an unauthenticated manifest fetch against `ghcr.io/v2/`, which returns `200`.
+That is worth knowing because the opposite is widely assumed; packages default to private only when
+the owning repo is private. If the package is ever flipped to private, ARC will need a pull secret
+and the runner pods will sit in `ImagePullBackOff` until it has one.
