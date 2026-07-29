@@ -1,0 +1,180 @@
+# build.yml — build, verify and publish the ARC runner image to GHCR.
+#
+# RUNNERS: `ubuntu-latest`, HARD-CODED, on every job. This is deliberately NOT the
+# `${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}` pattern the two homelab repos use, and it must never
+# become it: THIS REPO IS PUBLIC. Attaching a self-hosted runner to a public repo lets anyone execute
+# arbitrary code on the homelab LAN by opening a pull request from a fork. The image built here runs
+# the private repos' CI; the build of it stays on GitHub's infrastructure, where a hostile fork PR
+# reaches nothing. There is also no chicken-and-egg to break: the runners cannot build the image they
+# themselves run on.
+#
+# ACTION PINNING: every `uses:` is pinned to a full 40-char commit SHA with the tag in a trailing
+# comment, matching the convention in homelab-infra/.github/workflows/ci.yml. A tag is a moving
+# pointer; a SHA is not.
+#
+# THE SMOKE JOB GATES THE PUSH, on main as well as on pull requests. The image is built and asserted
+# BEFORE anything is published, so a broken image never reaches GHCR and therefore never reaches the
+# cluster. See the step comments for what is asserted and why those exact strings.
+name: Build runner image
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One in-flight build per ref; a force-push supersedes the previous run instead of racing it.
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Least privilege at the workflow level. The one job widens it, and only on the publish path.
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  # Mirrors the base runner version, so the tag says which actions-runner this image wraps. Keep in
+  # step with the FROM line in the Dockerfile — and with arc/runners.yaml, which pins by digest.
+  RUNNER_VERSION: 2.336.0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Only needed on the publish path, but permissions are per-job, not per-step. The push step
+      # itself is conditioned on the event below.
+      packages: write
+      # For the build provenance attestation.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      # BUILD FIRST, LOAD LOCALLY, PUSH NOTHING YET. `load: true` puts the image in the local daemon
+      # so the assertions below can actually run against it. The publish step further down reuses
+      # these exact layers from the GitHub Actions cache, so this is not a double build.
+      #
+      # linux/amd64 only: scripts/ci/tools.sh in both consuming repos refuses any other platform out
+      # loud, and both runner paths are x86_64. A multi-arch build would publish an arm64 variant
+      # that CI rejects on first use.
+      - name: Build (no push)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # WHY THESE EXACT STRINGS: homelab-app-of-apps/scripts/ci/tools.sh probes for exact equality
+      # before deciding whether to install — `kustomize version` must print exactly v5.4.3,
+      # `kubeconform -v` exactly v0.6.7, `pre-commit --version` exactly "pre-commit 4.6.0". If any of
+      # them drifts by so much as a patch release, tools.sh reinstalls over the baked copy on every
+      # single job and this image achieves nothing. The Dockerfile has an identical guard; this one
+      # catches the case where the guard itself was weakened.
+      - name: Assert the pinned toolchain
+        run: |
+          set -euo pipefail
+          run() { docker run --rm "${IMAGE}:ci" "$@"; }
+          assert_eq() { # <label> <actual> <expected>
+            if [[ "$2" != "$3" ]]; then
+              echo "::error::$1: expected '$3', got '$2'"
+              exit 1
+            fi
+            echo "ok: $1 = $2"
+          }
+          assert_eq kustomize   "$(run kustomize version)"    "v5.4.3"
+          assert_eq kubeconform "$(run kubeconform -v)"       "v0.6.7"
+          assert_eq pre-commit  "$(run pre-commit --version)"  "pre-commit 4.6.0"
+          assert_eq shellcheck  "$(run shellcheck --version | awk '/^version:/{print $2}')" "0.10.0"
+          assert_eq node        "$(run node --version)"        "v22.23.0"
+          # make and zstd carry no pin — presence is the whole requirement. make is the tool ~9
+          # test_harness.sh sites skip without; zstd is what stops actions/cache silently falling
+          # back to gzip.
+          run make --version >/dev/null && echo "ok: make present"
+          run zstd --version >/dev/null && echo "ok: zstd present"
+
+      # THE REAL ACCEPTANCE CRITERION. Everything above proves the binaries are there; this proves
+      # the binaries are the ones the test suite actually needed, by running it and checking the
+      # NUMBER. On the stock actions-runner the same suite reports PASS 1633 / FAIL 0 and exits 0 —
+      # green, and 264 assertions short. Checking the exit code alone would certify exactly that.
+      #
+      # homelab-infra is private, so this needs a token with read access to it. Without the secret
+      # the step is skipped rather than failed: a fork PR cannot have it, and this repo being public
+      # means fork PRs are expected. The push path below still runs — the Dockerfile guard and the
+      # assertions above are what gate it — but treat a skipped harness as unverified and run
+      # scripts/verify-harness.sh locally before pinning a new digest in arc/runners.yaml.
+      - name: Check out homelab-infra (for the harness)
+        id: infra
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/homelab-infra
+          token: ${{ secrets.HOMELAB_INFRA_READ_TOKEN }}
+          path: .homelab-infra
+
+      - name: Harness must reach its full count (PASS 1897 / FAIL 0)
+        if: steps.infra.outcome == 'success'
+        run: ./scripts/verify-harness.sh "${IMAGE}:ci" .homelab-infra
+
+      - name: Warn that the harness gate did not run
+        if: steps.infra.outcome != 'success'
+        run: |
+          echo "::warning::homelab-infra could not be checked out (no HOMELAB_INFRA_READ_TOKEN, or a fork PR) — the PASS 1897 acceptance gate did NOT run. Verify locally with scripts/verify-harness.sh before pinning this image."
+
+      # --- publish, only from main and only after everything above passed --------------------------
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        id: push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.RUNNER_VERSION }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          provenance: true
+          sbom: true
+
+      - name: Attest build provenance
+        if: steps.push.outcome == 'success'
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      # THE DIGEST IS THE DELIVERABLE. arc/runners.yaml pins by digest, not by tag, so this is the
+      # value a human copies out of the run. Putting it in the step summary saves digging through
+      # logs for it.
+      - name: Report the digest to pin
+        if: steps.push.outcome == 'success'
+        run: |
+          {
+            echo "### Pin this in \`homelab-k8s-corporate/arc/runners.yaml\`"
+            echo
+            echo '```yaml'
+            echo "# renovate: datasource=docker depName=${IMAGE}"
+            echo "image: ${IMAGE}:${RUNNER_VERSION}@${{ steps.push.outputs.digest }}"
+            echo '```'
+            echo
+            echo "Both HelmReleases pin it, and \`scripts/hooks/kustomize-validate.sh\` asserts it appears exactly twice."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,4 @@
+# Deny by default, then allow back exactly what the Dockerfile COPYs. Everything else — .git, the
+# README, verify-harness.sh, the workflow — is uploaded to the daemon for nothing on every build.
+*
+!scripts/install-tools.sh
