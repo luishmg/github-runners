@@ -19,8 +19,8 @@ Measured, same commit, same suite:
 
 | Image | Result | Skips |
 |---|---|---|
-| `ghcr.io/actions/actions-runner:2.336.0` | `PASS 1633 / FAIL 0`, **exit 0** | 12 |
-| this image | `PASS 1897 / FAIL 0`, exit 0 | 0 |
+| `ghcr.io/actions/actions-runner:2.336.0` | `PASS 1638 / FAIL 0`, **exit 0** | 12 |
+| this image | `PASS 1902 / FAIL 0`, exit 0 | 0 |
 
 **264 assertions — 14% of the suite — vanish without a single red signal.** That is the failure this
 image removes, and it is why the acceptance criterion here is a *number* and never an exit code.
@@ -57,7 +57,7 @@ Two notes worth carrying:
 ### Deliberately absent: `bao` and `pulumi`
 
 The harness *stubs* both onto a temporary `PATH`; neither ever triggers a `_skip`, and no CI job
-invokes them (`make -n` runs `.DEFAULT_GOAL := help`, not `check-tools`). The 1897 baseline was
+invokes them (`make -n` runs `.DEFAULT_GOAL := help`, not `check-tools`). The 1902 baseline was
 measured on `ubuntu-latest`, where **both are absent** — adding them would cost ~400 MB and move this
 image *away* from the environment the number was measured in. They belong here when Phase 7
 `pulumi preview` lands, and not before.
