@@ -4,17 +4,17 @@
 # WHY THIS IMAGE EXISTS — it is not a convenience, it is a correctness fix. homelab-infra's
 # scripts/tests/test_harness.sh guards `make`, `shellcheck` and `kubectl` with `command -v` and
 # downgrades each to `_skip`, and `_skip` increments NOTHING. On a stock actions-runner the suite
-# still exits 0, at a far lower PASS count than the 1897 it reaches on ubuntu-latest — a green that
+# still exits 0, at a far lower PASS count than the 1902 it reaches on ubuntu-latest — a green that
 # means much less, invisibly. Baking the tools in is what makes the count honest. The acceptance
 # criterion for any change to this file is therefore a NUMBER, not an exit code:
 #
-#     scripts/verify-harness.sh <image> <homelab-infra checkout>   # PASS 1897 / FAIL 0
+#     scripts/verify-harness.sh <image> <homelab-infra checkout>   # PASS 1902 / FAIL 0
 #
 # A lower PASS is a FAILURE. Do not "fix" a red build by dropping a tool.
 #
 # WHAT IS DELIBERATELY ABSENT: `bao` and `pulumi`. The harness stubs both onto a temp PATH and
 # neither ever triggers a `_skip`; no CI job invokes them (`make -n` runs .DEFAULT_GOAL := help, not
-# check-tools). The 1897 baseline was measured on ubuntu-latest where BOTH are absent, so adding them
+# check-tools). The 1902 baseline was measured on ubuntu-latest where BOTH are absent, so adding them
 # would cost ~400 MB and move this image AWAY from the environment the number was measured in. They
 # belong here when Phase 7 `pulumi preview` lands, and not before.
 #

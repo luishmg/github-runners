@@ -15,10 +15,24 @@
 set -euo pipefail
 
 # --- the baselines ---------------------------------------------------------------------------
-# Measured on ubuntu-latest and recorded in homelab-infra/.github/workflows/ci.yml:173-175, which
-# also says: "Do not make it green by skipping a suite or relaxing an assertion." That applies here
-# too — if this number moves, find out why before editing it.
-readonly EXPECTED_HARNESS_PASS=1897
+# Measured on ubuntu-latest and recorded in homelab-infra/.github/workflows/ci.yml, which also says:
+# "Do not make it green by skipping a suite or relaxing an assertion." That applies here too — if
+# this number moves, find out why before editing it.
+#
+# TWO REASONS IT CAN MOVE, AND THEY ARE OPPOSITES:
+#   1. A TOOL WENT MISSING FROM THIS IMAGE. The count goes DOWN, `_skip` sites fire, and the skip
+#      list printed on failure names exactly what to add back. This is the failure the gate exists
+#      for, and the fix is in the Dockerfile — never in this number.
+#   2. homelab-infra GREW ITS SUITE. The count goes UP, with no skips. Nothing is wrong with the
+#      image; the number here is simply stale, and bumping it deliberately IS the correct response.
+#      1897 -> 1902 was this case (homelab-infra Test 90, five static rows pinning that pulumi-run.sh
+#      installs with `npm ci`).
+#
+# The cross-repo coupling is real and worth naming: a change made entirely in homelab-infra turns
+# this gate red. Bump the two together. The gate stays an absolute count rather than, say, an A/B
+# against a stock-image run, because an absolute number is the only form that cannot be satisfied by
+# both sides eroding at once — at the cost of this maintenance.
+readonly EXPECTED_HARNESS_PASS=1902
 readonly EXPECTED_HARNESS_FAIL=0
 readonly EXPECTED_ROUTER_FAIL=0
 
@@ -100,10 +114,20 @@ else
 	fi
 	if [[ "$harness_pass" != "$EXPECTED_HARNESS_PASS" ]]; then
 		echo "  FAIL: PASS count is $harness_pass, expected $EXPECTED_HARNESS_PASS" >&2
-		# A lower count is almost always a tool missing from the image, and every such site
-		# announces itself as a SKIP naming the tool. Print them: that list IS the fix.
-		echo "  the skips below are the diagnosis — each names the tool the image still lacks:" >&2
-		grep -n '  SKIP: ' <<<"$harness_out" >&2 || echo "  (no skips — the drift is elsewhere)" >&2
+		# THE DIRECTION IS THE DIAGNOSIS, so say which one this is rather than printing one
+		# explanation for both. The old message asserted "each names the tool the image still lacks"
+		# unconditionally, which is actively misleading on a HIGHER count: nothing is missing, the
+		# suite simply grew, and an operator sent looking for an absent tool finds none and has no
+		# next step.
+		if (( harness_pass > EXPECTED_HARNESS_PASS )); then
+			echo "  the count went UP by $(( harness_pass - EXPECTED_HARNESS_PASS )). That is almost certainly homelab-infra" >&2
+			echo "  adding assertions, NOT a defect in this image — a missing tool can only lower it." >&2
+			echo "  Confirm against homelab-infra's recorded baseline, then bump EXPECTED_HARNESS_PASS here." >&2
+		else
+			# Every missing-tool site announces itself as a SKIP naming the tool. That list IS the fix.
+			echo "  the skips below are the diagnosis — each names the tool the image still lacks:" >&2
+			grep -n '  SKIP: ' <<<"$harness_out" >&2 || echo "  (no skips — the drift is elsewhere)" >&2
+		fi
 		failed=1
 	fi
 fi
