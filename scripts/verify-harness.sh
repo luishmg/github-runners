@@ -115,18 +115,43 @@ else
 	if [[ "$harness_pass" != "$EXPECTED_HARNESS_PASS" ]]; then
 		echo "  FAIL: PASS count is $harness_pass, expected $EXPECTED_HARNESS_PASS" >&2
 		# THE DIRECTION IS THE DIAGNOSIS, so say which one this is rather than printing one
-		# explanation for both. The old message asserted "each names the tool the image still lacks"
-		# unconditionally, which is actively misleading on a HIGHER count: nothing is missing, the
-		# suite simply grew, and an operator sent looking for an absent tool finds none and has no
-		# next step.
+		# explanation for both. The original message asserted "each names the tool the image still
+		# lacks" unconditionally, and that is wrong in TWO different ways, not one.
+		#
+		# THREE CASES, and the third is the one that bit during this very change. `_skip` sites are
+		# what a missing tool produces, so their presence — not the direction alone — is what
+		# separates "the image is broken" from "the two repos are out of step":
+		#
+		#   count UP                  homelab-infra grew its suite; this baseline is stale.
+		#   count DOWN, skips present a tool is missing from the image. The skip list IS the fix.
+		#   count DOWN, no skips      the checked-out homelab-infra is OLDER than this baseline
+		#                             expects. Nothing is wrong with the image at all.
+		#
+		# That last case is not hypothetical: this file's own bump to 1902 was committed while
+		# homelab-infra's PR was still unmerged, so CI checked out a main that still scored 1897 and
+		# the gate printed the missing-tool text plus one unrelated pre-existing SKIP. Perfectly
+		# misleading, and precisely the failure this block was written to remove — just in the
+		# direction that was not anticipated. A gate whose failure text sends you to the wrong repo
+		# costs more than a gate with no text.
 		if (( harness_pass > EXPECTED_HARNESS_PASS )); then
-			echo "  the count went UP by $(( harness_pass - EXPECTED_HARNESS_PASS )). That is almost certainly homelab-infra" >&2
-			echo "  adding assertions, NOT a defect in this image — a missing tool can only lower it." >&2
+			echo "  the count went UP by $(( harness_pass - EXPECTED_HARNESS_PASS )). That is homelab-infra adding" >&2
+			echo "  assertions, NOT a defect in this image — a missing tool can only lower the count." >&2
 			echo "  Confirm against homelab-infra's recorded baseline, then bump EXPECTED_HARNESS_PASS here." >&2
+		elif grep -q '  SKIP: .*not on PATH' <<<"$harness_out"; then
+			# Missing-tool skips are the ones that name a tool and PATH. Anchoring on that phrase
+			# rather than on 'SKIP:' matters: the suite carries unrelated permanent skips (e.g. the
+			# F18 kubeconfig-merge one), and matching those would resurrect the wrong diagnosis.
+			echo "  the count is LOW and tool skips fired — each names the tool the image still lacks:" >&2
+			grep -n '  SKIP: .*not on PATH' <<<"$harness_out" >&2
+			echo "  Fix this in the Dockerfile. Never by lowering EXPECTED_HARNESS_PASS." >&2
 		else
-			# Every missing-tool site announces itself as a SKIP naming the tool. That list IS the fix.
-			echo "  the skips below are the diagnosis — each names the tool the image still lacks:" >&2
-			grep -n '  SKIP: ' <<<"$harness_out" >&2 || echo "  (no skips — the drift is elsewhere)" >&2
+			echo "  the count is LOW but NO tool skip fired, so nothing is missing from this image." >&2
+			echo "  The usual cause is a version skew between the repos: the homelab-infra checked out" >&2
+			echo "  here is OLDER than the $EXPECTED_HARNESS_PASS this file expects — which is exactly what a" >&2
+			echo "  baseline bump landing before its homelab-infra counterpart looks like. Check that" >&2
+			echo "  repo's main, not the Dockerfile." >&2
+			echo "  (all skips, for reference:)" >&2
+			grep -n '  SKIP: ' <<<"$harness_out" >&2 || echo "  (none)" >&2
 		fi
 		failed=1
 	fi
