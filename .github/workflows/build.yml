@@ -111,19 +111,42 @@ jobs:
           run make --version >/dev/null && echo "ok: make present"
           run zstd --version >/dev/null && echo "ok: zstd present"
 
+      # IS THE HARNESS GATE EXPECTED TO BE ABLE TO RUN HERE?
+      #
+      # Exactly one situation makes it genuinely impossible: a pull request from a FORK. GitHub does
+      # not pass secrets to those, by design, so no credential can reach the job and the cross-repo
+      # checkout cannot succeed no matter what is configured. This repo is public, so fork PRs are a
+      # normal thing to expect.
+      #
+      # EVERYWHERE ELSE the credential MUST be present, and its absence MUST be fatal. The previous
+      # version of this file used `continue-on-error` unconditionally, which meant a revoked or
+      # expired token turned the strongest gate in the workflow into a warning annotation while the
+      # build stayed green — the same silent-erosion shape as `_skip` not incrementing FAIL, which is
+      # the entire reason this image exists. Fine-grained PATs expire within a year, so that was not
+      # hypothetical. Credential rot now fails the build.
+      #
+      # FORK_PR is rendered by the expression engine as the literal `true` or `false`, never as
+      # attacker-supplied text: the fork's repo name is compared inside the expression and only the
+      # boolean result crosses into the shell. Same reasoning as the `env:`-not-interpolation
+      # convention in homelab-infra/.github/workflows/ci.yml's ci-ok job.
+      - name: Classify the trigger
+        id: trigger
+        env:
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          echo "fork_pr=${FORK_PR}" >> "$GITHUB_OUTPUT"
+
       # THE REAL ACCEPTANCE CRITERION. Everything above proves the binaries are there; this proves
       # the binaries are the ones the test suite actually needed, by running it and checking the
       # NUMBER. On the stock actions-runner the same suite reports PASS 1633 / FAIL 0 and exits 0 —
       # green, and 264 assertions short. Checking the exit code alone would certify exactly that.
       #
-      # homelab-infra is private, so this needs a token with read access to it. Without the secret
-      # the step is skipped rather than failed: a fork PR cannot have it, and this repo being public
-      # means fork PRs are expected. The push path below still runs — the Dockerfile guard and the
-      # assertions above are what gate it — but treat a skipped harness as unverified and run
-      # scripts/verify-harness.sh locally before pinning a new digest in arc/runners.yaml.
+      # No `continue-on-error`: on anything but a fork PR, failing to check out homelab-infra is a
+      # hard failure. A missing, revoked or expired HOMELAB_INFRA_READ_TOKEN stops the build instead
+      # of quietly downgrading it.
       - name: Check out homelab-infra (for the harness)
-        id: infra
-        continue-on-error: true
+        if: steps.trigger.outputs.fork_pr != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.repository_owner }}/homelab-infra
@@ -131,13 +154,16 @@ jobs:
           path: .homelab-infra
 
       - name: Harness must reach its full count (PASS 1897 / FAIL 0)
-        if: steps.infra.outcome == 'success'
+        if: steps.trigger.outputs.fork_pr != 'true'
         run: ./scripts/verify-harness.sh "${IMAGE}:ci" .homelab-infra
 
-      - name: Warn that the harness gate did not run
-        if: steps.infra.outcome != 'success'
+      # A fork PR is the one case where skipping is honest. Say so as a notice rather than a warning:
+      # nothing is wrong, the gate simply cannot exist here. A maintainer re-running the same commit
+      # from a branch in this repo gets the full gate.
+      - name: Note that the harness gate cannot run on a fork PR
+        if: steps.trigger.outputs.fork_pr == 'true'
         run: |
-          echo "::warning::homelab-infra could not be checked out (no HOMELAB_INFRA_READ_TOKEN, or a fork PR) — the PASS 1897 acceptance gate did NOT run. Verify locally with scripts/verify-harness.sh before pinning this image."
+          echo "::notice::Fork pull request — GitHub withholds secrets, so the PASS 1897 harness gate cannot run. The Dockerfile build guard and the toolchain assertions above still applied. A maintainer must run scripts/verify-harness.sh, or push the same commit to a branch in this repo, before this image is pinned."
 
       # --- publish, only from main and only after everything above passed --------------------------
       - name: Log in to GHCR

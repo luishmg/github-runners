@@ -96,9 +96,18 @@ code on the homelab LAN via a fork pull request. The runners also cannot build t
 themselves run on.
 
 The harness gate needs read access to the private `homelab-infra`, via a
-`HOMELAB_INFRA_READ_TOKEN` repository secret. Without it that step is skipped rather than failed
-(fork PRs cannot have it) — treat a skipped harness as **unverified** and run `verify-harness.sh`
-locally before pinning a new digest.
+`HOMELAB_INFRA_READ_TOKEN` repository secret — a fine-grained PAT scoped to that one repo with
+`Contents: Read-only`, and nothing else.
+
+**A missing, revoked or expired token fails the build.** It is deliberately not tolerated, because a
+gate that downgrades itself to a warning when its credential rots is the same silent-erosion shape
+this image exists to eliminate — and fine-grained PATs expire within a year, so it *will* rot.
+
+The single exception is a **pull request from a fork**: GitHub withholds secrets from those by design,
+so no credential can reach the job and the gate genuinely cannot run. That case emits a notice, and
+the Dockerfile build guard plus the toolchain assertions still apply. Before pinning an image built
+only from a fork PR, either run `verify-harness.sh` locally or push the same commit to a branch in
+this repo.
 
 ## Consuming it
 
