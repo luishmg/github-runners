@@ -139,7 +139,7 @@ jobs:
 
       # THE REAL ACCEPTANCE CRITERION. Everything above proves the binaries are there; this proves
       # the binaries are the ones the test suite actually needed, by running it and checking the
-      # NUMBER. On the stock actions-runner the same suite reports PASS 1638 / FAIL 0 and exits 0 —
+      # NUMBER. On the stock actions-runner the same suite reports PASS 1709 / FAIL 0 and exits 0 —
       # green, and 264 assertions short. Checking the exit code alone would certify exactly that.
       #
       # No `continue-on-error`: on anything but a fork PR, failing to check out homelab-infra is a
@@ -153,7 +153,7 @@ jobs:
           token: ${{ secrets.HOMELAB_INFRA_READ_TOKEN }}
           path: .homelab-infra
 
-      - name: Harness must reach its full count (PASS 1902 / FAIL 0)
+      - name: Harness must reach its full count (PASS 1973 / FAIL 0)
         if: steps.trigger.outputs.fork_pr != 'true'
         run: ./scripts/verify-harness.sh "${IMAGE}:ci" .homelab-infra
 
@@ -163,7 +163,7 @@ jobs:
       - name: Note that the harness gate cannot run on a fork PR
         if: steps.trigger.outputs.fork_pr == 'true'
         run: |
-          echo "::notice::Fork pull request — GitHub withholds secrets, so the PASS 1902 harness gate cannot run. The Dockerfile build guard and the toolchain assertions above still applied. A maintainer must run scripts/verify-harness.sh, or push the same commit to a branch in this repo, before this image is pinned."
+          echo "::notice::Fork pull request — GitHub withholds secrets, so the PASS 1973 harness gate cannot run. The Dockerfile build guard and the toolchain assertions above still applied. A maintainer must run scripts/verify-harness.sh, or push the same commit to a branch in this repo, before this image is pinned."
 
       # --- publish, only from main and only after everything above passed --------------------------
       - name: Log in to GHCR
