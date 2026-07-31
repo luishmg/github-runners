@@ -25,14 +25,26 @@ set -euo pipefail
 #      for, and the fix is in the Dockerfile — never in this number.
 #   2. homelab-infra GREW ITS SUITE. The count goes UP, with no skips. Nothing is wrong with the
 #      image; the number here is simply stale, and bumping it deliberately IS the correct response.
-#      1897 -> 1902 was this case (homelab-infra Test 90, five static rows pinning that pulumi-run.sh
-#      installs with `npm ci`).
+#      Both bumps so far were this case: 1897 -> 1902 (homelab-infra Test 90, five static rows
+#      pinning that pulumi-run.sh installs with `npm ci`) and 1902 -> 1973 (the ARC GitHub App
+#      credential value becoming Pulumi-owned, +71).
 #
 # The cross-repo coupling is real and worth naming: a change made entirely in homelab-infra turns
 # this gate red. Bump the two together. The gate stays an absolute count rather than, say, an A/B
 # against a stock-image run, because an absolute number is the only form that cannot be satisfied by
 # both sides eroding at once — at the cost of this maintenance.
-readonly EXPECTED_HARNESS_PASS=1902
+#
+# THE 1973 BUMP SHOWS WHY "TOGETHER" IS LOAD-BEARING: it merged in homelab-infra with this file
+# untouched, and NOTHING WENT RED, because this gate only runs when something pushes to THIS repo.
+# The breakage sat armed and invisible until the next build here. A deferred failure in another
+# repository is the worst shape this coupling can take, and no amount of care in homelab-infra's
+# review catches it — only bumping both in the same session does.
+#
+# The 264-assertion gap has survived both bumps unchanged (1638/1902 -> 1709/1973). That is not a
+# coincidence: every row added since was a static source read needing no tooling, so it lands on the
+# stock image and this one equally. If a future bump MOVES the gap, the new rows are tool-dependent
+# and this image may genuinely be missing something — investigate before bumping.
+readonly EXPECTED_HARNESS_PASS=1973
 readonly EXPECTED_HARNESS_FAIL=0
 readonly EXPECTED_ROUTER_FAIL=0
 
