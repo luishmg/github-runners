@@ -27,8 +27,10 @@ set -euo pipefail
 #      image; the number here is simply stale, and bumping it deliberately IS the correct response.
 #      All three bumps so far were this case: 1897 -> 1902 (homelab-infra Test 90, five static rows
 #      pinning that pulumi-run.sh installs with `npm ci`), 1902 -> 1973 (the ARC GitHub App
-#      credential value becoming Pulumi-owned, +71), and 1973 -> 2052 (+79, a CORRECTION of a
-#      number that had gone stale — see the gap note below).
+#      credential value becoming Pulumi-owned, +71), 1973 -> 2052 (+79, a CORRECTION of a
+#      number that had gone stale — see the gap note below), and 2052 -> 2096 (+44, pinning
+#      load_env_file's value-trimming contract — the first bump that genuinely belongs to the
+#      commit recording it rather than being a correction of drift).
 #
 # The cross-repo coupling is real and worth naming: a change made entirely in homelab-infra turns
 # this gate red. Bump the two together. The gate stays an absolute count rather than, say, an A/B
@@ -53,11 +55,24 @@ set -euo pipefail
 # `command -v`, so the gated blocks execute and FAIL rather than degrading to `_skip`; that
 # misreading scores 1937/101 and means nothing.
 #
-# Result: `make` alone accounts for the WHOLE gap — omitting only `make` scores 1766, identical to
-# omitting all five, so the other four gate nothing on top of it. 22 of the 79 new rows landed inside
-# make-gated blocks. THIS IMAGE IS NOT MISSING ANYTHING: it ships make, which is why it scores the
-# full 2052. The moved gap means the suite grew more tool-dependent, not that the image regressed.
-readonly EXPECTED_HARNESS_PASS=2052
+# THE GAP HELD ON THE FOURTH BUMP: still 286 (1766/2052 -> 1810/2096). All 44 new rows are ungated,
+# which 1766+44 = 1810 confirms exactly. A gap that holds while the total rises is the boring, good
+# outcome — the suite grew without growing its tool surface, so nothing about THIS image changed.
+#
+# RESULT, CORRECTED — the third bump recorded "`make` alone accounts for the WHOLE gap; omitting only
+# `make` scores 1766, identical to omitting all five, so the other four gate nothing on top of it".
+# THAT DOES NOT REPRODUCE. Re-measured on the 2096 commit, one run per PATH:
+#
+#     full 2096 | all five absent 1810 (gap 286) | only make absent 1824 (make: 272)
+#     | only the other four absent 2082 (those four: 14)
+#
+# 272 + 14 = 286 EXACTLY — the gates are DISJOINT, not nested, and that additivity is what makes the
+# numbers self-checking. The old reading is therefore believed to be a bad measurement, not a real
+# structural change. Do not restore the nesting claim without reproducing it.
+#
+# THIS IMAGE IS STILL NOT MISSING ANYTHING: it ships make, which is why it scores the full 2096.
+# `make` still dominates the gap (272 of 286), so the reason this image exists is unchanged.
+readonly EXPECTED_HARNESS_PASS=2096
 readonly EXPECTED_HARNESS_FAIL=0
 readonly EXPECTED_ROUTER_FAIL=0
 
