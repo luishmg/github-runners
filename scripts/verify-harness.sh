@@ -25,9 +25,12 @@ set -euo pipefail
 #      for, and the fix is in the Dockerfile — never in this number.
 #   2. homelab-infra GREW ITS SUITE. The count goes UP, with no skips. Nothing is wrong with the
 #      image; the number here is simply stale, and bumping it deliberately IS the correct response.
-#      Both bumps so far were this case: 1897 -> 1902 (homelab-infra Test 90, five static rows
-#      pinning that pulumi-run.sh installs with `npm ci`) and 1902 -> 1973 (the ARC GitHub App
-#      credential value becoming Pulumi-owned, +71).
+#      All three bumps so far were this case: 1897 -> 1902 (homelab-infra Test 90, five static rows
+#      pinning that pulumi-run.sh installs with `npm ci`), 1902 -> 1973 (the ARC GitHub App
+#      credential value becoming Pulumi-owned, +71), 1973 -> 2052 (+79, a CORRECTION of a
+#      number that had gone stale — see the gap note below), and 2052 -> 2096 (+44, pinning
+#      load_env_file's value-trimming contract — the first bump that genuinely belongs to the
+#      commit recording it rather than being a correction of drift).
 #
 # The cross-repo coupling is real and worth naming: a change made entirely in homelab-infra turns
 # this gate red. Bump the two together. The gate stays an absolute count rather than, say, an A/B
@@ -40,11 +43,36 @@ set -euo pipefail
 # repository is the worst shape this coupling can take, and no amount of care in homelab-infra's
 # review catches it — only bumping both in the same session does.
 #
-# The 264-assertion gap has survived both bumps unchanged (1638/1902 -> 1709/1973). That is not a
-# coincidence: every row added since was a static source read needing no tooling, so it lands on the
-# stock image and this one equally. If a future bump MOVES the gap, the new rows are tool-dependent
-# and this image may genuinely be missing something — investigate before bumping.
-readonly EXPECTED_HARNESS_PASS=1973
+# THE GAP MOVED ON THE THIRD BUMP: 264 -> 286 (1709/1973 -> 1766/2052), after surviving the first
+# two unchanged. The previous note said that means the new rows are tool-dependent and to investigate
+# before bumping, so that was done rather than assumed — the stock figure was RE-MEASURED, not
+# derived as 1709+79.
+#
+# Method, because the obvious shortcut is wrong: the five tools test_harness.sh probes for
+# (make, shellcheck, kubectl, curl, bao) must be genuinely ABSENT from PATH — note the line wrap,
+# a comment line starting "# shellcheck" is parsed as a DIRECTIVE and fails SC1073. It symlink-farms
+# every other binary into a temp dir and runs against that. A stub exiting 127 is still FOUND by
+# `command -v`, so the gated blocks execute and FAIL rather than degrading to `_skip`; that
+# misreading scores 1937/101 and means nothing.
+#
+# THE GAP HELD ON THE FOURTH BUMP: still 286 (1766/2052 -> 1810/2096). All 44 new rows are ungated,
+# which 1766+44 = 1810 confirms exactly. A gap that holds while the total rises is the boring, good
+# outcome — the suite grew without growing its tool surface, so nothing about THIS image changed.
+#
+# RESULT, CORRECTED — the third bump recorded "`make` alone accounts for the WHOLE gap; omitting only
+# `make` scores 1766, identical to omitting all five, so the other four gate nothing on top of it".
+# THAT DOES NOT REPRODUCE. Re-measured on the 2096 commit, one run per PATH:
+#
+#     full 2096 | all five absent 1810 (gap 286) | only make absent 1824 (make: 272)
+#     | only the other four absent 2082 (those four: 14)
+#
+# 272 + 14 = 286 EXACTLY — the gates are DISJOINT, not nested, and that additivity is what makes the
+# numbers self-checking. The old reading is therefore believed to be a bad measurement, not a real
+# structural change. Do not restore the nesting claim without reproducing it.
+#
+# THIS IMAGE IS STILL NOT MISSING ANYTHING: it ships make, which is why it scores the full 2096.
+# `make` still dominates the gap (272 of 286), so the reason this image exists is unchanged.
+readonly EXPECTED_HARNESS_PASS=2096
 readonly EXPECTED_HARNESS_FAIL=0
 readonly EXPECTED_ROUTER_FAIL=0
 
