@@ -19,7 +19,7 @@ set -euo pipefail
 # "Do not make it green by skipping a suite or relaxing an assertion." That applies here too — if
 # this number moves, find out why before editing it.
 #
-# TWO REASONS IT CAN MOVE, AND THEY ARE OPPOSITES:
+# THREE REASONS IT CAN MOVE, AND TWO OF THEM LOOK IDENTICAL FROM THE COUNT ALONE:
 #   1. A TOOL WENT MISSING FROM THIS IMAGE. The count goes DOWN, `_skip` sites fire, and the skip
 #      list printed on failure names exactly what to add back. This is the failure the gate exists
 #      for, and the fix is in the Dockerfile — never in this number.
@@ -31,6 +31,12 @@ set -euo pipefail
 #      number that had gone stale — see the gap note below), and 2052 -> 2096 (+44, pinning
 #      load_env_file's value-trimming contract — the first bump that genuinely belongs to the
 #      commit recording it rather than being a correction of drift).
+#   3. homelab-infra DELIBERATELY SHRANK its suite. The count goes DOWN, with no skips, because
+#      code was retired and the assertions testing it were retired with it. Only 2096 -> 1446
+#      (2026-09-26) has been this case so far; see the fifth-bump note below. Distinguishing it
+#      from case 1 matters: both look like "the number fell", but case 1 means this image lost a
+#      tool and the fix is in the Dockerfile, while case 3 means the number here is simply stale.
+#      Tell them apart by the skip count — case 1 skips, case 3 does not.
 #
 # The cross-repo coupling is real and worth naming: a change made entirely in homelab-infra turns
 # this gate red. Bump the two together. The gate stays an absolute count rather than, say, an A/B
@@ -70,9 +76,39 @@ set -euo pipefail
 # numbers self-checking. The old reading is therefore believed to be a bad measurement, not a real
 # structural change. Do not restore the nesting claim without reproducing it.
 #
-# THIS IMAGE IS STILL NOT MISSING ANYTHING: it ships make, which is why it scores the full 2096.
+# THIS IMAGE IS STILL NOT MISSING ANYTHING: it ships make, which is why it scores the full count.
 # `make` still dominates the gap (272 of 286), so the reason this image exists is unchanged.
-readonly EXPECTED_HARNESS_PASS=2096
+#
+# FIFTH BUMP, 2026-09-26, AND THE FIRST ONE THAT GOES DOWN: 2096 -> 1446 (-650). This is not
+# case 1 and not case 2 above — it is a THIRD case those two do not cover: homelab-infra
+# deliberately SHRANK its suite. Its workstation-secrets task 03 retired the operator's static
+# AppRole credential path (the `k8s` role, the `pulumi-deployer` policy, the self-heal, the
+# ~/.env.homelab file and its writer), and the assertions that tested it were deleted with it.
+# A count that drops because code was deliberately removed is correct; a count that drops for
+# any other reason is case 1 and the fix is NOT this number.
+#
+# HOW -650 WAS DERIVED, because pasting a foreign machine's number here would be wrong: the delta
+# was measured on the homelab-infra workstation, BEFORE any edit (PASS 2013) and after
+# (PASS 1363), giving D = 650; this gate then moved by that same D, 2096 - 650. The after-figure
+# is NOT simply "2013 minus what was deleted", and it spans TWO tasks, not one. Task 03 deleted
+# the AppRole assertions and added a characterization block pinning the surviving behaviour; task
+# 04 (root-token revocation) then added exactly 4 more rows by registering two new scripts in
+# EXPECTED_SCRIPTS, which buys them `bash -n` and shellcheck coverage. Its behavioural rows live in
+# standalone suites on purpose, precisely to keep this number's movement small and explainable.
+# D is the net of all of that. The absolute
+# figures differ between the two environments — 2013 there vs 2096 here on the same commit, a
+# pre-existing drift NOT resolved by that task — so only the DELTA transfers. All five probed
+# tools were present at both measurements and the after-run reported ZERO skip rows, which is
+# what makes the delta a like-for-like comparison.
+#
+# THE GAP WAS NOT RE-MEASURED FOR THIS BUMP — read this before trusting 286. The method note
+# above says to re-measure rather than derive, and that was not done here: the net -650 covers
+# both deletions and additions, and some of the deleted rows may
+# well have removed tool-gated ones among them, in which case the 286 gap has shrunk too and the
+# stock-image figure of 1810 is stale. Nothing in this file depends on the gap, so the gate is
+# correct either way, but the next person to reason about the stock image should re-measure
+# before quoting it.
+readonly EXPECTED_HARNESS_PASS=1446
 readonly EXPECTED_HARNESS_FAIL=0
 readonly EXPECTED_ROUTER_FAIL=0
 
@@ -176,7 +212,12 @@ else
 		if (( harness_pass > EXPECTED_HARNESS_PASS )); then
 			echo "  the count went UP by $(( harness_pass - EXPECTED_HARNESS_PASS )). That is homelab-infra adding" >&2
 			echo "  assertions, NOT a defect in this image — a missing tool can only lower the count." >&2
-			echo "  Confirm against homelab-infra's recorded baseline, then bump EXPECTED_HARNESS_PASS here." >&2
+			echo "  Bump EXPECTED_HARNESS_PASS to $harness_pass — the count THIS script just measured INSIDE" >&2
+			echo "  THIS IMAGE, which is the only environment this gate compares against. Do NOT paste a" >&2
+			echo "  figure measured on the operator workstation and do NOT trust a recorded number (this" >&2
+			echo "  file's own comments or ci.yml's): the gap note above records an 83-row drift between" >&2
+			echo "  the two environments, so a workstation figure lands this gate 83 rows low and sends the" >&2
+			echo "  next run into the DOWN branch below, whose text blames the wrong repository." >&2
 		elif grep -q '  SKIP: .*not on PATH' <<<"$harness_out"; then
 			# Missing-tool skips are the ones that name a tool and PATH. Anchoring on that phrase
 			# rather than on 'SKIP:' matters: the suite carries unrelated permanent skips (e.g. the
@@ -186,10 +227,17 @@ else
 			echo "  Fix this in the Dockerfile. Never by lowering EXPECTED_HARNESS_PASS." >&2
 		else
 			echo "  the count is LOW but NO tool skip fired, so nothing is missing from this image." >&2
-			echo "  The usual cause is a version skew between the repos: the homelab-infra checked out" >&2
-			echo "  here is OLDER than the $EXPECTED_HARNESS_PASS this file expects — which is exactly what a" >&2
-			echo "  baseline bump landing before its homelab-infra counterpart looks like. Check that" >&2
-			echo "  repo's main, not the Dockerfile." >&2
+			echo "  TWO different causes produce exactly this, and they have OPPOSITE fixes (cases 2 and 3" >&2
+			echo "  in this file's header). Decide which one you are looking at before editing anything:" >&2
+			echo "    (a) VERSION SKEW — the homelab-infra checked out here is OLDER than the" >&2
+			echo "        $EXPECTED_HARNESS_PASS this file expects, which is what a baseline bump landing" >&2
+			echo "        ahead of its homelab-infra counterpart looks like. Fix: wait for, or check, that" >&2
+			echo "        repo's main. Do NOT lower this number." >&2
+			echo "    (b) A DELIBERATE SHRINK — homelab-infra retired code and the assertions covering it," >&2
+			echo "        so the checkout here is NEWER, not older, and the number here is simply stale." >&2
+			echo "        Fix: lower this number to $harness_pass. Nothing is wrong with either repo." >&2
+			echo "  Tell them apart by reading homelab-infra's recent history, not by the count: a shrink" >&2
+			echo "  says so in its commit or its planning record (task 03's AppRole retirement was one)." >&2
 			echo "  (all skips, for reference:)" >&2
 			grep -n '  SKIP: ' <<<"$harness_out" >&2 || echo "  (none)" >&2
 		fi
