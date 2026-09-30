@@ -32,7 +32,7 @@ set -euo pipefail
 #      load_env_file's value-trimming contract — the first bump that genuinely belongs to the
 #      commit recording it rather than being a correction of drift).
 #   3. homelab-infra DELIBERATELY SHRANK its suite. The count goes DOWN, with no skips, because
-#      code was retired and the assertions testing it were retired with it. Only 2096 -> 1446
+#      code was retired and the assertions testing it were retired with it. Only 2096 -> 1363
 #      (2026-09-26) has been this case so far; see the fifth-bump note below. Distinguishing it
 #      from case 1 matters: both look like "the number fell", but case 1 means this image lost a
 #      tool and the fix is in the Dockerfile, while case 3 means the number here is simply stale.
@@ -79,7 +79,7 @@ set -euo pipefail
 # THIS IMAGE IS STILL NOT MISSING ANYTHING: it ships make, which is why it scores the full count.
 # `make` still dominates the gap (272 of 286), so the reason this image exists is unchanged.
 #
-# FIFTH BUMP, 2026-09-26, AND THE FIRST ONE THAT GOES DOWN: 2096 -> 1446 (-650). This is not
+# FIFTH BUMP, 2026-09-26/30, AND THE FIRST ONE THAT GOES DOWN: 2096 -> 1363 (-733). This is not
 # case 1 and not case 2 above — it is a THIRD case those two do not cover: homelab-infra
 # deliberately SHRANK its suite. Its workstation-secrets task 03 retired the operator's static
 # AppRole credential path (the `k8s` role, the `pulumi-deployer` policy, the self-heal, the
@@ -101,14 +101,24 @@ set -euo pipefail
 # tools were present at both measurements and the after-run reported ZERO skip rows, which is
 # what makes the delta a like-for-like comparison.
 #
-# THE GAP WAS NOT RE-MEASURED FOR THIS BUMP — read this before trusting 286. The method note
+# THE GAP IS NOW ZERO, AND THAT IS MEASURED, 2026-09-30. The paragraph below used to warn that the
+# gap had NOT been re-measured and that 286 should not be trusted. It has now been measured the only
+# way that counts — by running the suite in this image — and the answer is that the
+# workstation-vs-image gap has COLLAPSED TO 0: this image scores 1363 with ZERO skip rows, exactly
+# what the operator workstation scores. The first attempt at this bump set 1446 by DERIVING
+# 1363 + 83 from a gap measured BEFORE task 03 deleted ~650 assertions; the gate rejected it, which
+# is the gate doing its job. All 83 rows that used to pass only here were AppRole assertions and went
+# with that deletion: the workstation lost 650 rows, this image lost 733, and the 83-row difference
+# IS the former gap. Derive nothing from a stale gap again — run it.
+#
+# THE STOCK-IMAGE GAP OF 286 IS SEPARATE AND IS STILL STALE — read this before trusting it. The method note
 # above says to re-measure rather than derive, and that was not done here: the net -650 covers
 # both deletions and additions, and some of the deleted rows may
 # well have removed tool-gated ones among them, in which case the 286 gap has shrunk too and the
 # stock-image figure of 1810 is stale. Nothing in this file depends on the gap, so the gate is
 # correct either way, but the next person to reason about the stock image should re-measure
 # before quoting it.
-readonly EXPECTED_HARNESS_PASS=1446
+readonly EXPECTED_HARNESS_PASS=1363
 readonly EXPECTED_HARNESS_FAIL=0
 readonly EXPECTED_ROUTER_FAIL=0
 
@@ -215,8 +225,9 @@ else
 			echo "  Bump EXPECTED_HARNESS_PASS to $harness_pass — the count THIS script just measured INSIDE" >&2
 			echo "  THIS IMAGE, which is the only environment this gate compares against. Do NOT paste a" >&2
 			echo "  figure measured on the operator workstation and do NOT trust a recorded number (this" >&2
-			echo "  file's own comments or ci.yml's): the gap note above records an 83-row drift between" >&2
-			echo "  the two environments, so a workstation figure lands this gate 83 rows low and sends the" >&2
+			echo "  file's own comments or ci.yml's). NOTE the workstation-vs-image gap was MEASURED at 0" >&2
+			echo "  on 2026-09-30 — both score 1363 — so a workstation figure is currently the right one;" >&2
+			echo "  that was NOT true before task 03 and may not stay true, which is why you measure and" >&2
 			echo "  next run into the DOWN branch below, whose text blames the wrong repository." >&2
 		elif grep -q '  SKIP: .*not on PATH' <<<"$harness_out"; then
 			# Missing-tool skips are the ones that name a tool and PATH. Anchoring on that phrase

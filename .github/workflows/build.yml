@@ -153,7 +153,7 @@ jobs:
           token: ${{ secrets.HOMELAB_INFRA_READ_TOKEN }}
           path: .homelab-infra
 
-      - name: Harness must reach its full count (PASS 1973 / FAIL 0)
+      - name: Harness must reach its full count (EXPECTED_HARNESS_PASS in verify-harness.sh)
         if: steps.trigger.outputs.fork_pr != 'true'
         run: ./scripts/verify-harness.sh "${IMAGE}:ci" .homelab-infra
 
@@ -163,7 +163,7 @@ jobs:
       - name: Note that the harness gate cannot run on a fork PR
         if: steps.trigger.outputs.fork_pr == 'true'
         run: |
-          echo "::notice::Fork pull request — GitHub withholds secrets, so the PASS 1973 harness gate cannot run. The Dockerfile build guard and the toolchain assertions above still applied. A maintainer must run scripts/verify-harness.sh, or push the same commit to a branch in this repo, before this image is pinned."
+          echo "::notice::Fork pull request — GitHub withholds secrets, so the harness gate cannot run. The Dockerfile build guard and the toolchain assertions above still applied. A maintainer must run scripts/verify-harness.sh, or push the same commit to a branch in this repo, before this image is pinned."
 
       # --- publish, only from main and only after everything above passed --------------------------
       - name: Log in to GHCR
